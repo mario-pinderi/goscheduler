@@ -1,6 +1,6 @@
-# goscheduler
+# goScheduler
 
-go Scheduler is a Golang package for scheduling tasks. This tasks can be run once in a selected time or repeatedly. All tasks will be run concurrently. 
+goScheduler is a Golang package for scheduling tasks. This tasks can be run once in a selected time or repeatedly. All tasks will be run concurrently. 
 
     package main
     
