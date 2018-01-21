@@ -20,7 +20,7 @@ go Scheduler is a Golang package for scheduling tasks. This tasks can be run onc
         <-sc.Start()
     }
     
-#TODO:
+# TODO:
 
 * Running x task at a time to avoid overwhelming
 * Prioritize tasks 
