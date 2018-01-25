@@ -9,27 +9,27 @@ Task properties:
 * LifeTime - time that task will be available
 
 
-    package main
-    
-    import (
-        "fmt"
-        "time"
-        "github.com/mariopinderist/goscheduler"
-    )
-    
-    func main() {
-        sc := goscheduler.NewScheduler()
-        //normal job
-        sc.AddJob(func(tt string) { fmt.Println(tt) }, time.Now().Add(5*time.Second), false, time.Second, "5 sec")
-    
-        // job repeated
-        sc.Job(func(tt string) { fmt.Println(tt) }, "repeat").Args("repeat").RepeatEvery(3 * time.Second)
-    
-        // job repeated
-        sc.Job(func(tt string) { fmt.Println(tt) }, "lifetime").Args("lifetime").RepeatEvery(3 * time.Second).LifeTime(time.Now().Add(20 * time.Second))
-    
-        <-sc.Start()
-    }
+        package main
+        
+        import (
+            "fmt"
+            "time"
+            "github.com/mariopinderist/goscheduler"
+        )
+        
+        func main() {
+            sc := goscheduler.NewScheduler()
+            //normal job
+            sc.AddJob(func(tt string) { fmt.Println(tt) }, time.Now().Add(5*time.Second), false, time.Second, "5 sec")
+        
+            // job repeated
+            sc.Job(func(tt string) { fmt.Println(tt) }, "repeat").Args("repeat").RepeatEvery(3 * time.Second)
+        
+            // job repeated
+            sc.Job(func(tt string) { fmt.Println(tt) }, "lifetime").Args("lifetime").RepeatEvery(3 * time.Second).LifeTime(time.Now().Add(20 * time.Second))
+        
+            <-sc.Start()
+        }
     
 # TODO:
 
