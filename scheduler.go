@@ -4,21 +4,25 @@ import (
 	"reflect"
 	"time"
 	"errors"
+	"github.com/google/uuid"
 )
 
 type Scheduler struct {
-	jobs []Job
+	jobs map[string]*Job
 }
 type Job struct {
-	Function   interface{}
-	Arguments  []reflect.Value
-	ExecTime   time.Time
-	Repetitive bool
-	RepeatTime time.Duration
+	Function    interface{}
+	Arguments   []reflect.Value
+	ExecTime    time.Time
+	Repetitive  bool
+	RepeatTime  time.Duration
+	HasLifetime bool
+	Lifetime    time.Time
 }
 
 func NewScheduler() *Scheduler {
 	sc := Scheduler{}
+	sc.jobs = make(map[string]*Job)
 	return &sc
 }
 
@@ -28,14 +32,53 @@ func (scheduler *Scheduler) AddJob(function interface{}, execTime time.Time, rep
 		for _, typ := range args {
 			paramsArray = append(paramsArray, reflect.ValueOf(typ))
 		}
-		scheduler.jobs = append(scheduler.jobs, Job{Function: function, ExecTime: execTime, Arguments: paramsArray, Repetitive: repetitive, RepeatTime: repeatTime})
+		id := uuid.New()
+		scheduler.jobs[id.String()] = &Job{Function: function, ExecTime: execTime, Arguments: paramsArray, Repetitive: repetitive, RepeatTime: repeatTime}
 		return nil
 	}
 	return errors.New("function and execTime can not be nil")
 }
 
+func (scheduler *Scheduler) Job(function interface{}, jobId string) *Job {
+	job := Job{Function: function}
+	job.Arguments = []reflect.Value{}
+	job.ExecTime = time.Now()
+	scheduler.jobs[jobId] = &job
+	return &job
+}
+
+func (job *Job) Args(args ...interface{}) *Job {
+	var paramsArray []reflect.Value
+	for _, typ := range args {
+		paramsArray = append(paramsArray, reflect.ValueOf(typ))
+	}
+	job.Arguments = paramsArray
+	return job
+}
+
+func (job *Job) ExecutionTime(execTime time.Time) *Job {
+	job.ExecTime = execTime
+	return job
+}
+
+func (job *Job) RepeatEvery(repeatTime time.Duration) *Job {
+	job.Repetitive = true
+	job.RepeatTime = repeatTime
+	return job
+}
+
+func (job *Job) LifeTime(lifeTime time.Time) *Job {
+	job.HasLifetime=true
+	job.Lifetime = lifeTime
+	return job
+}
+
 func (scheduler *Scheduler) CleanJobs() {
-	scheduler.jobs = []Job{}
+	scheduler.jobs = make(map[string]*Job)
+}
+
+func (scheduler *Scheduler) DeleteJob(jobId string) {
+	delete(scheduler.jobs, jobId)
 }
 
 func (scheduler *Scheduler) runRemainJobs() {
@@ -44,9 +87,12 @@ func (scheduler *Scheduler) runRemainJobs() {
 		if currTime.After(job.ExecTime) {
 			go reflect.ValueOf(job.Function).Call(job.Arguments)
 			if job.Repetitive {
-				scheduler.jobs[index].ExecTime = scheduler.jobs[index].ExecTime.Add(job.RepeatTime)
+				scheduler.jobs[index].ExecTime = job.ExecTime.Add(job.RepeatTime)
+				if job.HasLifetime && scheduler.jobs[index].ExecTime.After(job.Lifetime) {
+					delete(scheduler.jobs, index)
+				}
 			} else {
-				scheduler.jobs = append(scheduler.jobs[:index], scheduler.jobs[index+1:]...)
+				delete(scheduler.jobs, index)
 			}
 		}
 	}
