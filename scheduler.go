@@ -53,6 +53,42 @@ func (scheduler *Scheduler) Job(function interface{}, jobId string) *Job {
 	return &job
 }
 
+//Run Jobs if running time has reached.
+func (scheduler *Scheduler) runRemainJobs() {
+	currTime := time.Now()
+	for index, job := range scheduler.jobs {
+		if currTime.After(job.ExecTime) {
+			go reflect.ValueOf(job.Function).Call(job.Arguments)
+			if job.Repetitive {
+				scheduler.jobs[index].ExecTime = job.ExecTime.Add(job.RepeatTime)
+				if job.HasLifetime && scheduler.jobs[index].ExecTime.After(job.Lifetime) {
+					delete(scheduler.jobs, index)
+				}
+			} else {
+				delete(scheduler.jobs, index)
+			}
+		}
+	}
+}
+
+//Start the Scheduler.
+func (scheduler *Scheduler) Start() chan bool {
+	stopped := make(chan bool, 1)
+	ticker := time.NewTicker(1 * time.Second)
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				scheduler.runRemainJobs()
+			case <-stopped:
+				return
+			}
+		}
+	}()
+	return stopped
+}
+
 //Add arguments to Job.
 func (job *Job) Args(args ...interface{}) *Job {
 	var paramsArray []reflect.Value
@@ -91,40 +127,4 @@ func (scheduler *Scheduler) CleanJobs() {
 //Delete a Job by id.
 func (scheduler *Scheduler) DeleteJob(jobId string) {
 	delete(scheduler.jobs, jobId)
-}
-
-//Run Jobs if running time has reached.
-func (scheduler *Scheduler) runRemainJobs() {
-	currTime := time.Now()
-	for index, job := range scheduler.jobs {
-		if currTime.After(job.ExecTime) {
-			go reflect.ValueOf(job.Function).Call(job.Arguments)
-			if job.Repetitive {
-				scheduler.jobs[index].ExecTime = job.ExecTime.Add(job.RepeatTime)
-				if job.HasLifetime && scheduler.jobs[index].ExecTime.After(job.Lifetime) {
-					delete(scheduler.jobs, index)
-				}
-			} else {
-				delete(scheduler.jobs, index)
-			}
-		}
-	}
-}
-
-//Start the Scheduler.
-func (scheduler *Scheduler) Start() chan bool {
-	stopped := make(chan bool, 1)
-	ticker := time.NewTicker(1 * time.Second)
-
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				scheduler.runRemainJobs()
-			case <-stopped:
-				return
-			}
-		}
-	}()
-	return stopped
 }
