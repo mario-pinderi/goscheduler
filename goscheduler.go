@@ -9,7 +9,8 @@ import (
 
 //Scheduler structure.
 type Scheduler struct {
-	jobs map[string]*Job
+	jobs      map[string]*Job
+	functions map[string]interface{}
 }
 
 //Job Structure.
@@ -30,15 +31,22 @@ func NewScheduler() *Scheduler {
 	return &sc
 }
 
+//Add functions to scheduler.
+func (scheduler *Scheduler) AddFunction(function interface{}, functionId string) {
+	if _, exist := scheduler.functions[functionId]; function != nil && functionId != "" && !exist {
+		scheduler.functions[functionId] = function
+	}
+}
+
 //Add Job to scheduler.
-func (scheduler *Scheduler) AddJob(function interface{}, execTime time.Time, repetitive bool, repeatTime time.Duration, args ...interface{}) error {
-	if function != nil && !execTime.IsZero() {
+func (scheduler *Scheduler) AddJobById(functionId string, execTime time.Time, repetitive bool, repeatTime time.Duration, args ...interface{}) error {
+	if _, exist := scheduler.functions[functionId]; !execTime.IsZero() && exist {
 		var paramsArray []reflect.Value
 		for _, typ := range args {
 			paramsArray = append(paramsArray, reflect.ValueOf(typ))
 		}
 		id := uuid.New()
-		scheduler.jobs[id.String()] = &Job{Function: function, ExecTime: execTime, Arguments: paramsArray, Repetitive: repetitive, RepeatTime: repeatTime}
+		scheduler.jobs[id.String()] = &Job{Function: scheduler.functions[functionId], ExecTime: execTime, Arguments: paramsArray, Repetitive: repetitive, RepeatTime: repeatTime}
 		return nil
 	}
 	return errors.New("function and execTime can not be nil")
