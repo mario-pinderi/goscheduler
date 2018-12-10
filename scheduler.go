@@ -1,21 +1,30 @@
 package goscheduler
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/google/uuid"
+	"github.com/prometheus/common/log"
+	"go.etcd.io/bbolt"
 	"reflect"
 	"time"
 )
 
+const BUCKET_NOT_EXIST  = "bucket does not exist"
+const NO_JOBS_IN_DB = "There are no jobs in database"
 //Scheduler structure.
 type Scheduler struct {
-	jobs map[string]*Job
+	bucketName []byte
+	jobs      map[string]*Job
+	functions map[string]interface{}
+	dbCon *bbolt.DB
 }
 
 //Job Structure.
 type Job struct {
-	Function    interface{}
-	Arguments   []reflect.Value
+	FunctionId  string
+	Arguments   []interface{}
 	ExecTime    time.Time
 	Repetitive  bool
 	RepeatTime  time.Duration
@@ -27,60 +36,121 @@ type Job struct {
 func NewScheduler() *Scheduler {
 	sc := Scheduler{}
 	sc.jobs = make(map[string]*Job)
+	sc.functions = make(map[string]interface{})
+	sc.bucketName = []byte("functions")
+	err := sc.boltConnection()
+	if err != nil {
+		log.Debug(err)
+	}
 	return &sc
 }
 
+//Add functions to scheduler.
+func (scheduler *Scheduler) AddFunction(function interface{}, functionId string) {
+	if _, exist := scheduler.functions[functionId]; function != nil && functionId != "" && !exist {
+		scheduler.functions[functionId] = function
+	}
+}
+
 //Add Job to scheduler.
-func (scheduler *Scheduler) AddJob(function interface{}, execTime time.Time, repetitive bool, repeatTime time.Duration, args ...interface{}) error {
-	if function != nil && !execTime.IsZero() {
-		var paramsArray []reflect.Value
+func (scheduler *Scheduler) AddJobById(functionId string, execTime time.Time, repetitive bool, repeatTime time.Duration, args ...interface{}) error {
+	if _, exist := scheduler.functions[functionId]; !execTime.IsZero() && exist {
+		/*var paramsArray []reflect.Value
 		for _, typ := range args {
 			paramsArray = append(paramsArray, reflect.ValueOf(typ))
-		}
+		}*/
 		id := uuid.New()
-		scheduler.jobs[id.String()] = &Job{Function: function, ExecTime: execTime, Arguments: paramsArray, Repetitive: repetitive, RepeatTime: repeatTime}
+		scheduler.jobs[id.String()] = &Job{FunctionId: functionId, ExecTime: execTime, Arguments: args, Repetitive: repetitive, RepeatTime: repeatTime}
 		return nil
 	}
 	return errors.New("function and execTime can not be nil")
 }
 
 //Create Job instance.
-func (scheduler *Scheduler) Job(function interface{}, jobId string) *Job {
-	job := Job{Function: function}
-	job.Arguments = []reflect.Value{}
+func (scheduler *Scheduler) Job(functionId string, jobId string) *Job {
+	job := Job{FunctionId: functionId}
 	job.ExecTime = time.Now()
 	scheduler.jobs[jobId] = &job
 	return &job
 }
 
 //Run Jobs if running time has reached.
-func (scheduler *Scheduler) runRemainJobs() {
+func (scheduler *Scheduler) runRemainJobs() int {
 	currTime := time.Now()
+	cnt := 0
+	var paramsArray []reflect.Value
 	for index, job := range scheduler.jobs {
 		if currTime.After(job.ExecTime) {
-			go reflect.ValueOf(job.Function).Call(job.Arguments)
-			if job.Repetitive {
-				scheduler.jobs[index].ExecTime = job.ExecTime.Add(job.RepeatTime)
-				if job.HasLifetime && scheduler.jobs[index].ExecTime.After(job.Lifetime) {
+			if _,exists := scheduler.functions[job.FunctionId]; exists {
+				cnt++
+				for _, typ := range scheduler.jobs[index].Arguments {
+					paramsArray = append(paramsArray, reflect.ValueOf(typ))
+				}
+				go reflect.ValueOf(scheduler.functions[job.FunctionId]).Call(paramsArray)
+				if job.Repetitive {
+					scheduler.jobs[index].ExecTime = job.ExecTime.Add(job.RepeatTime)
+					if job.HasLifetime && scheduler.jobs[index].ExecTime.After(job.Lifetime) {
+						delete(scheduler.jobs, index)
+					}
+				} else {
 					delete(scheduler.jobs, index)
 				}
-			} else {
-				delete(scheduler.jobs, index)
 			}
 		}
 	}
+
+	return cnt
+}
+
+func (scheduler *Scheduler) close() {
+	fmt.Println("closed")
+	err := scheduler.addRemainingJobsToBolt()
+	if err != nil {
+		log.Debug(err)
+	}
+	err = scheduler.dbCon.Close()
+	if err != nil {
+		log.Debug(err)
+	}
+	return
+}
+
+func (scheduler *Scheduler) boltConnection() error {
+	if scheduler.dbCon == nil {
+		dbCon, err := bbolt.Open("jobs.db", 0666, nil )
+		if err != nil {
+			return err
+		}
+		scheduler.dbCon = dbCon
+		return nil
+	}
+	return nil
 }
 
 //Start the Scheduler.
 func (scheduler *Scheduler) Start() chan bool {
 	stopped := make(chan bool, 1)
 	ticker := time.NewTicker(1 * time.Second)
-
+	err := scheduler.GetJobsFromBolt()
+	if err != nil && err.Error() != BUCKET_NOT_EXIST {
+		log.Error(err)
+	}
+	if err != nil && err.Error() == NO_JOBS_IN_DB {
+		log.Error("No jobs in database")
+	}
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				scheduler.runRemainJobs()
+				nr := scheduler.runRemainJobs()
+				fmt.Println(nr)
+				if nr != 0 {
+					err := scheduler.addRemainingJobsToBolt()
+					if err != nil {
+						log.Debug(err)
+						return
+					}
+				}
 			case <-stopped:
 				return
 			}
@@ -89,13 +159,63 @@ func (scheduler *Scheduler) Start() chan bool {
 	return stopped
 }
 
+func (scheduler Scheduler) GetJobsFromBolt() error {
+	err := scheduler.dbCon.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(scheduler.bucketName)
+		if bucket == nil {
+			return errors.New(BUCKET_NOT_EXIST)
+		}
+
+		val := bucket.Get([]byte("remainingJobs"))
+		if val == nil {
+			return errors.New(NO_JOBS_IN_DB)
+		}
+		err := json.Unmarshal(val, &scheduler.jobs)
+		for k,v := range scheduler.jobs {
+			fmt.Println(k, v)
+		}
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return err
+}
+
+
+func (scheduler *Scheduler) addRemainingJobsToBolt() error {
+	err := scheduler.dbCon.Update(func(tx *bbolt.Tx) error {
+		jobBytes, err := json.Marshal(scheduler.jobs)
+		if err != nil {
+			return err
+		}
+		bucket, err := tx.CreateBucketIfNotExists(scheduler.bucketName)
+		if err != nil {
+			return err
+		}
+		err = bucket.Put([]byte("remainingJobs"), jobBytes)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 //Add arguments to Job.
 func (job *Job) Args(args ...interface{}) *Job {
-	var paramsArray []reflect.Value
+	/*var paramsArray []reflect.Value
 	for _, typ := range args {
 		paramsArray = append(paramsArray, reflect.ValueOf(typ))
 	}
-	job.Arguments = paramsArray
+	job.Arguments = paramsArray*/
+	job.Arguments = args
 	return job
 }
 
