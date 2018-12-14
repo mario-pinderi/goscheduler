@@ -254,9 +254,17 @@ func (job *Job) LifeTime(lifeTime time.Time) *Job {
 //Remove all jobs of the scheduler.
 func (scheduler *Scheduler) CleanJobs() {
 	scheduler.jobs = make(map[string]*Job)
+	err := scheduler.addRemainingJobsToBolt()
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 //Delete a Job by id.
 func (scheduler *Scheduler) DeleteJob(jobId string) {
 	delete(scheduler.jobs, jobId)
+	err := scheduler.addRemainingJobsToBolt()
+	if err != nil {
+		fmt.Println(err)
+	}
 }
