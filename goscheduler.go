@@ -44,7 +44,7 @@ func NewScheduler(opts ...int) *Scheduler {
 	if len(opts) > 0 && len(opts) < 2 {
 		sc.max = make(chan struct{}, opts[0])
 	} else {
-		sc.max = make(chan struct{}, 30)
+		sc.max = make(chan struct{}, 100)
 	}
 
 	if err != nil {
