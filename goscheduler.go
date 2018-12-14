@@ -20,6 +20,7 @@ type Scheduler struct {
 	functions map[string]interface{}
 	dbCon *bbolt.DB
 	max chan struct{}
+	MaxCon int
 }
 
 //Job Structure.
@@ -34,13 +35,18 @@ type Job struct {
 }
 
 //Create Scheduler instance.
-func NewScheduler() *Scheduler {
+func NewScheduler(opts ...int) *Scheduler {
 	sc := Scheduler{}
 	sc.jobs = make(map[string]*Job)
 	sc.functions = make(map[string]interface{})
 	sc.bucketName = []byte("functions")
 	err := sc.boltConnection()
-	sc.max = make(chan struct{}, 5)
+	if len(opts) > 0 && len(opts) < 2 {
+		sc.max = make(chan struct{}, opts[0])
+	} else {
+		sc.max = make(chan struct{}, 30)
+	}
+
 	if err != nil {
 		log.Debug(err)
 	}

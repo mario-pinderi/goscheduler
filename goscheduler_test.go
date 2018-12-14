@@ -2,6 +2,7 @@ package goscheduler
 
 import (
 	"fmt"
+	"github.com/prometheus/common/log"
 	"testing"
 	"time"
 )
@@ -20,10 +21,15 @@ func TestAddJob(t *testing.T) {
 	go func() {
 		<-sc.Start()
 	}()
+	defer sc.close()
 	texts := make(chan string)
 	for _ , c := range cases{
 		t.Run(c.name, func(t *testing.T) {
-			sc.AddJob(func(c chan string, text string) { c <- text }, c.execTime, false, 5*time.Second, texts, t.Name())
+			sc.AddFunction(func(c chan string, text string) { c <- text }, c.name)
+			err := sc.AddJobById(c.name, c.execTime, false, 5*time.Second, texts, t.Name())
+			if err != nil {
+				log.Fatal(err)
+			}
 		})
 	}
 
@@ -50,7 +56,11 @@ func BenchmarkAddJob(t *testing.B) {
 	texts := make(chan string)
 	for _ , c := range cases{
 		t.Run(c.name, func(t *testing.B) {
-			sc.AddJob(func(c chan string, text string) { c <- text }, c.execTime, false, 5*time.Second, texts, t.Name())
+			sc.AddFunction(func(c chan string, text string) { c <- text }, c.name)
+			err := sc.AddJobById(c.name, c.execTime, false, 5*time.Second, texts, t.Name())
+			if err != nil {
+				log.Fatal(err)
+			}
 		})
 	}
 
@@ -58,6 +68,17 @@ func BenchmarkAddJob(t *testing.B) {
 		fmt.Println(<-texts)
 	}
 
+}
+
+
+func TestCurrentJobs (t *testing.T) {
+	sc := NewScheduler()
+
+	_ = sc.GetJobsFromBolt()
+
+	for k, v := range sc.jobs {
+		fmt.Println(k, v)
+	}
 }
 
 
