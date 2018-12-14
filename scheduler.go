@@ -19,6 +19,7 @@ type Scheduler struct {
 	jobs      map[string]*Job
 	functions map[string]interface{}
 	dbCon *bbolt.DB
+	max chan struct{}
 }
 
 //Job Structure.
@@ -39,6 +40,7 @@ func NewScheduler() *Scheduler {
 	sc.functions = make(map[string]interface{})
 	sc.bucketName = []byte("functions")
 	err := sc.boltConnection()
+	sc.max = make(chan struct{}, 5)
 	if err != nil {
 		log.Debug(err)
 	}
@@ -78,15 +80,19 @@ func (scheduler *Scheduler) Job(functionId string, jobId string) *Job {
 func (scheduler *Scheduler) runRemainJobs() int {
 	currTime := time.Now()
 	cnt := 0
-	var paramsArray []reflect.Value
 	for index, job := range scheduler.jobs {
+		var paramsArray []reflect.Value
 		if currTime.After(job.ExecTime) {
 			if _,exists := scheduler.functions[job.FunctionId]; exists {
 				cnt++
 				for _, typ := range scheduler.jobs[index].Arguments {
 					paramsArray = append(paramsArray, reflect.ValueOf(typ))
 				}
-				go reflect.ValueOf(scheduler.functions[job.FunctionId]).Call(paramsArray)
+				scheduler.max <- struct{}{}
+				go func() {
+					reflect.ValueOf(scheduler.functions[job.FunctionId]).Call(paramsArray)
+					<-scheduler.max
+				}()
 				if job.Repetitive {
 					scheduler.jobs[index].ExecTime = job.ExecTime.Add(job.RepeatTime)
 					if job.HasLifetime && scheduler.jobs[index].ExecTime.After(job.Lifetime) {
