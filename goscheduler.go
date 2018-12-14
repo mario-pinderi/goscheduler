@@ -40,7 +40,7 @@ func NewScheduler() *Scheduler {
 	sc.functions = make(map[string]interface{})
 	sc.bucketName = []byte("functions")
 	err := sc.boltConnection()
-	sc.max = make(chan struct{}, 5)
+	sc.max = make(chan struct{}, 100)
 	if err != nil {
 		log.Debug(err)
 	}
